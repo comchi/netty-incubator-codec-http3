@@ -22,8 +22,12 @@ import io.netty.channel.embedded.EmbeddedChannel;
 import io.netty.incubator.codec.quic.QuicStreamType;
 import io.netty.util.ReferenceCountUtil;
 import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.junit.runners.Parameterized;
 
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.List;
 
 import static io.netty.incubator.codec.http3.Http3TestUtils.assertException;
@@ -34,12 +38,22 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
+@RunWith(Parameterized.class)
 public class Http3ControlStreamOutboundHandlerTest extends
         AbstractHttp3FrameTypeValidationHandlerTest<Http3ControlStreamFrame> {
     private final Http3SettingsFrame settingsFrame = new DefaultHttp3SettingsFrame();
 
-    public Http3ControlStreamOutboundHandlerTest() {
-        super(true, QuicStreamType.UNIDIRECTIONAL);
+    public Http3ControlStreamOutboundHandlerTest(boolean server) {
+        super(server, QuicStreamType.UNIDIRECTIONAL);
+    }
+
+    @Parameterized.Parameters(name = "{index}: server = {0}")
+    public static Collection<Object[]> data() {
+        List<Object[]> config = new ArrayList<>();
+        for (int a = 0; a < 2; a++) {
+            config.add(new Object[]{a == 0});
+        }
+        return config;
     }
 
     @Override
