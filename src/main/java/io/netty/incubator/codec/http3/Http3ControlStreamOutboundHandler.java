@@ -98,25 +98,22 @@ final class Http3ControlStreamOutboundHandler
         }
         if (msg instanceof Http3GoAwayFrame) {
             Http3GoAwayFrame goAwayFrame = (Http3GoAwayFrame) msg;
-            if (server) {
-                // See https://tools.ietf.org/html/draft-ietf-quic-http-32#section-5.2
-                long id = goAwayFrame.id();
-                if (id % 4 != 0) {
-                    ReferenceCountUtil.release(msg);
-                    promise.setFailure(new Http3Exception(Http3ErrorCode.H3_ID_ERROR,
-                            "GOAWAY id not valid : " + id));
-                    return;
-                }
-                if (sendGoAwayId != null && id > sendGoAwayId) {
-                    ReferenceCountUtil.release(msg);
-                    promise.setFailure(new Http3Exception(Http3ErrorCode.H3_ID_ERROR,
-                            "GOAWAY id is bigger then the last sent: " + id + " > " + sendGoAwayId));
-                    return;
-                }
-                sendGoAwayId = id;
-            } else {
-                // TODO: Add logic for the client side as well.
+            long id = goAwayFrame.id();
+            // See https://tools.ietf.org/html/draft-ietf-quic-http-32#section-5.2
+            if (server && id % 4 != 0 || !server && (id & 1) == 0) {
+                ReferenceCountUtil.release(msg);
+                promise.setFailure(new Http3Exception(Http3ErrorCode.H3_ID_ERROR,
+                        "GOAWAY id not valid : " + id));
+                return;
             }
+
+            if (sendGoAwayId != null && id > sendGoAwayId) {
+                ReferenceCountUtil.release(msg);
+                promise.setFailure(new Http3Exception(Http3ErrorCode.H3_ID_ERROR,
+                        "GOAWAY id is bigger then the last sent: " + id + " > " + sendGoAwayId));
+                return;
+            }
+            sendGoAwayId = id;
         }
         ctx.write(msg, promise);
     }
