@@ -16,6 +16,7 @@
 package io.netty.incubator.codec.http3;
 
 import io.netty.buffer.ByteBuf;
+import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.channel.embedded.EmbeddedChannel;
@@ -30,8 +31,7 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 
-import static io.netty.incubator.codec.http3.Http3TestUtils.assertException;
-import static io.netty.incubator.codec.http3.Http3TestUtils.verifyClose;
+import static io.netty.incubator.codec.http3.Http3TestUtils.*;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
@@ -59,7 +59,7 @@ public class Http3ControlStreamOutboundHandlerTest extends
     }
 
     @Override
-    protected Http3FrameTypeDuplexValidationHandler<Http3ControlStreamFrame> newHandler() {
+    protected Http3ControlStreamOutboundHandler newHandler() {
         return new Http3ControlStreamOutboundHandler(server, settingsFrame, new ChannelInboundHandlerAdapter());
     }
 
@@ -88,15 +88,11 @@ public class Http3ControlStreamOutboundHandlerTest extends
         EmbeddedChannel channel = newStream(newHandler());
 
         if (server) {
-            assertTrue(channel.writeOutbound(new DefaultHttp3GoAwayFrame(8)));
-            ReferenceCountUtil.release(channel.readOutbound());
-            assertTrue(channel.writeOutbound(new DefaultHttp3GoAwayFrame(4)));
-            ReferenceCountUtil.release(channel.readOutbound());
+            writeValidFrame(channel, new DefaultHttp3GoAwayFrame(8));
+            writeValidFrame(channel, new DefaultHttp3GoAwayFrame(4));
         } else {
-            assertTrue(channel.writeOutbound(new DefaultHttp3GoAwayFrame(9)));
-            ReferenceCountUtil.release(channel.readOutbound());
-            assertTrue(channel.writeOutbound(new DefaultHttp3GoAwayFrame(5)));
-            ReferenceCountUtil.release(channel.readOutbound());
+            writeValidFrame(channel, new DefaultHttp3GoAwayFrame(9));
+            writeValidFrame(channel, new DefaultHttp3GoAwayFrame(5));
         }
 
         assertFalse(channel.finish());
@@ -109,25 +105,11 @@ public class Http3ControlStreamOutboundHandlerTest extends
         EmbeddedChannel channel = newStream(newHandler());
 
         if (server) {
-            assertTrue(channel.writeOutbound(new DefaultHttp3GoAwayFrame(4)));
-            ReferenceCountUtil.release(channel.readOutbound());
-
-            try {
-                channel.writeOutbound(new DefaultHttp3GoAwayFrame(8));
-                fail();
-            } catch (Exception e) {
-                assertException(Http3ErrorCode.H3_ID_ERROR, e);
-            }
+            writeValidFrame(channel, new DefaultHttp3GoAwayFrame(4));
+            writeInvalidFrame(Http3ErrorCode.H3_ID_ERROR, channel, new DefaultHttp3GoAwayFrame(8));
         } else { // expected to fail
-            assertTrue(channel.writeOutbound(new DefaultHttp3GoAwayFrame(1)));
-            ReferenceCountUtil.release(channel.readOutbound());
-
-            try {
-                channel.writeOutbound(new DefaultHttp3GoAwayFrame(3));
-                fail();
-            } catch (Exception e) {
-                assertException(Http3ErrorCode.H3_ID_ERROR, e);
-            }
+            writeValidFrame(channel, new DefaultHttp3GoAwayFrame(1));
+            writeInvalidFrame(Http3ErrorCode.H3_ID_ERROR, channel, new DefaultHttp3GoAwayFrame(3));
         }
 
         assertFalse(channel.finish());
@@ -138,12 +120,51 @@ public class Http3ControlStreamOutboundHandlerTest extends
         parent.close().get();
         // Let's mark the parent as inactive before we close as otherwise we will send a close frame.
         EmbeddedChannel channel = newStream(newHandler());
-        try {
-            channel.writeOutbound(new DefaultHttp3GoAwayFrame(2));
-            fail();
-        } catch (Exception e) {
-            assertException(Http3ErrorCode.H3_ID_ERROR, e);
+
+        writeInvalidFrame(Http3ErrorCode.H3_ID_ERROR, channel, new DefaultHttp3GoAwayFrame(2));
+
+        assertFalse(channel.finish());
+    }
+
+    @Test
+    public void testPassesUnknownFrame() throws Exception {
+        parent.close().get();
+        // Let's mark the parent as inactive before we close as otherwise we will send a close frame.
+        EmbeddedChannel channel = newStream(newHandler());
+
+        writeValidFrame(channel, new DefaultHttp3UnknownFrame(Http3CodecUtils.MIN_RESERVED_FRAME_TYPE,
+                Unpooled.buffer().writeLong(8)));
+
+        assertFalse(channel.finish());
+    }
+
+    @Test
+    public void testMaxPushIdFailsWhenReduced() throws Exception {
+        parent.close().get();
+        // Let's mark the parent as inactive before we close as otherwise we will send a close frame.
+        EmbeddedChannel channel = newStream(newHandler());
+
+        if (server) {
+            writeValidFrame(channel, new DefaultHttp3MaxPushIdFrame(8));
+            writeInvalidFrame(Http3ErrorCode.H3_ID_ERROR, channel, new DefaultHttp3MaxPushIdFrame(4));
         }
+
+        assertFalse(channel.finish());
+    }
+
+    @Test
+    public void testMaxPushIdCanBeIncreased() throws Exception {
+        parent.close().get();
+        // Let's mark the parent as inactive before we close as otherwise we will send a close frame.
+        Http3ControlStreamOutboundHandler handler = newHandler();
+        EmbeddedChannel channel = newStream(handler);
+
+        if (server) {
+            writeValidFrame(channel, new DefaultHttp3MaxPushIdFrame(4));
+            writeValidFrame(channel, new DefaultHttp3MaxPushIdFrame(8));
+            assertEquals(Long.valueOf(8), handler.sentMaxPushId());
+        }
+
         assertFalse(channel.finish());
     }
 
@@ -168,5 +189,24 @@ public class Http3ControlStreamOutboundHandlerTest extends
 
         assertNull(channel.readOutbound());
         return channel;
+    }
+
+    private void writeInvalidFrame(Http3ErrorCode expectedCode,
+                                   EmbeddedChannel channel,
+                                   Http3Frame frame) {
+        try {
+            channel.writeOutbound(frame);
+            fail();
+        } catch (Exception e) {
+            assertException(expectedCode, e);
+        }
+    }
+
+    private void writeValidFrame(EmbeddedChannel channel, Http3Frame frame) {
+        try {
+            assertTrue(channel.writeOutbound(frame));
+        } finally {
+            ReferenceCountUtil.release(channel.readOutbound());
+        }
     }
 }
