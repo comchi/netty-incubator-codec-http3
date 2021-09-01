@@ -81,7 +81,7 @@ public class Http3ControlStreamOutboundHandlerTest extends
         verifyClose(1, Http3ErrorCode.H3_CLOSED_CRITICAL_STREAM, parent);
     }
 
-    @Test // expected to fail
+    @Test
     public void testGoAwayIdDecreaseWorks() throws Exception {
         parent.close().get();
         // Let's mark the parent as inactive before we close as otherwise we will send a close frame.
@@ -107,7 +107,7 @@ public class Http3ControlStreamOutboundHandlerTest extends
         if (server) {
             writeValidFrame(channel, new DefaultHttp3GoAwayFrame(4));
             writeInvalidFrame(Http3ErrorCode.H3_ID_ERROR, channel, new DefaultHttp3GoAwayFrame(8));
-        } else { // expected to fail
+        } else {
             writeValidFrame(channel, new DefaultHttp3GoAwayFrame(1));
             writeInvalidFrame(Http3ErrorCode.H3_ID_ERROR, channel, new DefaultHttp3GoAwayFrame(3));
         }
